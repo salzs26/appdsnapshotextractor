@@ -1,0 +1,143 @@
+import groovy.swing.SwingBuilder
+
+
+task report <<{
+	def  params = 	getOptions()
+	def rowCount = 0
+
+	def data = getDataFromAppD(params)
+
+	def fileName =  System.currentTimeMillis()+ '_' +'ip_list.txt'			
+	def reportFile = new File(fileName)
+
+	def ipList =  getIPList(data)
+
+	ipList.each{ ip ->
+		reportFile << InetAddress.getByName(ip).getHostName() +System.getProperty("line.separator")
+		rowCount++
+	}
+    validateResults(rowCount,params["minutes"])
+}
+
+
+def getIPList(data)
+{
+
+    def input = new XmlSlurper().parseText(data)
+    def requestList =  input."request-segment-data".list()
+
+    def filteredipList = []
+
+    for(request in requestList)
+    {
+        def uriList =  request.transactionProperties."name-value".list().findAll{ it.value == '/sonata/login/secure-login.seam' }
+        if(uriList)
+        {
+            def httpList = request.httpParameters."name-value".list().findAll{ it.name == 'Header-X-Forwarded-For' }
+            filteredipList.add(httpList[0].value.text())
+        }
+    }
+
+    filteredipList = filteredipList.unique()
+
+    println filteredipList
+    return filteredipList
+}
+
+def getDataFromAppD(params)
+{
+
+		StringBuilder sqlquery = new StringBuilder() 
+		sqlquery.append("http://ndcsonmon01/controller/rest/applications/Sonata-Production/request-snapshots?")
+		sqlquery.append("time-range-type=BEFORE_NOW&duration-in-mins=").append(params["minutes"])
+		sqlquery.append("&data-collector-type=Http%20Parameter&data-collector-name=Header-X-Forwarded-For&&data-collector-value=%1%&need-props=true&application-component-ids=12")
+
+
+	    def username = "monitor@customer1"
+        def password = "VicSuper100"
+        def authString = "$username:$password".getBytes().encodeBase64().toString()
+        def conn = sqlquery.toString().toURL().openConnection()
+        def data
+        conn.setRequestProperty( "Authorization", "Basic ${authString}" )
+        if( conn.responseCode == 200 ) {
+            data = conn.content.text
+            // Work with the xml document
+        } else {
+            println "Something bad happened."
+            println "${conn.responseCode}: ${conn.responseMessage}"
+        }
+
+        return data
+}
+
+
+
+def removeIfExists(file)
+{
+	if(file.exists())
+	{
+		file.delete()
+	}
+}
+
+def validateResults(rowCount,minutes){
+
+	if(rowCount == 0)
+	{
+		
+		print((char)27)
+		print("[31m No records found in  # ")
+		print((char)27)
+		print("[43m")
+		print(minutes)
+		print((char)27)
+		print("[0m")
+		print(" minutes")
+		println()
+
+	}
+	else
+	{
+		print((char)27)
+		print("[33m Processed IP's # ")
+		print((char)27)
+		print("[30;47m")
+		print(rowCount)
+		print((char)27)
+		print("[0m")
+		println()
+
+	}
+}
+
+
+def getOptions()
+{
+
+def minutes
+
+
+		new SwingBuilder().edt {
+  dialog(modal: true, // Otherwise the build will continue running before you closed the dialog
+      title: 'Enter Minutes', // Dialog title
+      alwaysOnTop: true, // pretty much what the name says
+      resizable: true, // Don't allow the user to resize the dialog
+      locationRelativeTo: null, // Place dialog in center of the screen
+      pack: true, // We need to pack the dialog (so it will take the size of it's children
+      show: true // Let's show it
+  ) {
+    vbox { // Put everything below each other
+      label(text: "Please enter Minutes:")
+      input = textField()
+      button(defaultButton: true, text: 'OK', actionPerformed: {
+
+       minutes = input.text; // Set pass variable to value of input field
+        dispose(); // Close dialog
+      })
+    }
+  }
+}
+ 
+
+ return ["minutes":minutes]
+}
